@@ -1,57 +1,51 @@
-name: Nightly Snapshot
-
-# only on push or allow us to do this manually using workflow dispatch
-on:
-  push:
-    branches:
-      - master
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
 jobs:
   check_secrets:
-    name: Check if required secrets are available
-    runs-on: ubuntu-latest
     env:
-      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
       NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+    name: Check if required secrets are available
     outputs:
       secrets_available: ${{ steps.set-matrix.outputs.secrets_available }}
+    runs-on: self-hosted
     steps:
-      - id: set-matrix
-        run: |
-          if [[ -n "${NEXUS_USERNAME:-}" ]] && [[ -n "${NEXUS_PASSWORD:-}" ]]; then
-            echo "secrets_available=true" >> $GITHUB_OUTPUT
-          else
-            echo "secrets_available=false" >> $GITHUB_OUTPUT
-          fi
-
+    - continue-on-error: true
+      id: set-matrix
+      run: "if [[ -n \"${NEXUS_USERNAME:-}\" ]] && [[ -n \"${NEXUS_PASSWORD:-}\" ]];\
+        \ then\n  echo \"secrets_available=true\" >> $GITHUB_OUTPUT\nelse\n  echo\
+        \ \"secrets_available=false\" >> $GITHUB_OUTPUT\nfi\n"
   snapshot:
-    name: Snapshot
-    runs-on: ubuntu-latest
-    needs: check_secrets
-    if: ${{ needs.check_secrets.outputs.secrets_available == 'true' }}
     env:
-      ACTIONS_STEP_DEBUG: true
       ACTIONS_RUNNER_DEBUG: true
+      ACTIONS_STEP_DEBUG: true
+    if: ${{ needs.check_secrets.outputs.secrets_available == 'true' }}
+    name: Snapshot
+    needs: check_secrets
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 50
-      - name: 'Set up JDK 17'
-        uses: actions/setup-java@v3
-        with:
-          distribution: zulu
-          java-version: 17
-      - uses: burrunan/gradle-cache-action@v1
-        name: Publish Snapshot
-        env:
-          S3_BUILD_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_BUILD_CACHE_ACCESS_KEY_ID }}
-          S3_BUILD_CACHE_SECRET_KEY: ${{ secrets.S3_BUILD_CACHE_SECRET_KEY }}
-          ORG_GRADLE_PROJECT_ghNexusUsername: ${{ secrets.NEXUS_USERNAME }}
-          ORG_GRADLE_PROJECT_ghNexusPassword: ${{ secrets.NEXUS_PASSWORD }}
-        with:
-          job-id: jdk8
-          arguments: postgresql:publishToNexus -Pgh
+    - continue-on-error: true
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 50
+    - continue-on-error: true
+      name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        distribution: zulu
+        java-version: 17
+    - continue-on-error: true
+      env:
+        ORG_GRADLE_PROJECT_ghNexusPassword: ${{ secrets.NEXUS_PASSWORD }}
+        ORG_GRADLE_PROJECT_ghNexusUsername: ${{ secrets.NEXUS_USERNAME }}
+        S3_BUILD_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_BUILD_CACHE_ACCESS_KEY_ID }}
+        S3_BUILD_CACHE_SECRET_KEY: ${{ secrets.S3_BUILD_CACHE_SECRET_KEY }}
+      name: Publish Snapshot
+      uses: burrunan/gradle-cache-action@v1
+      with:
+        arguments: postgresql:publishToNexus -Pgh
+        job-id: jdk8
+name: Nightly Snapshot
+on:
+  repository_dispatch:
+    types: trigger-ga___nightlysnapshot.yml
+permissions:
+  contents: read

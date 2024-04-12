@@ -1,66 +1,57 @@
-name: Seed build cache
-
-on:
-  push:
-    branches:
-      - '*'
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'appveyor.xml'
-
-permissions:
-  contents: read
-
 concurrency:
-  # Push to the same branch (ref is like refs/heads/release) should stop previous buildcache
-  # workflows for the branch.
-  # More info: https://stackoverflow.com/a/68422069/253468
-  group: ci-buildcache-${{ github.ref }}
   cancel-in-progress: true
-
+  group: ci-buildcache-${{ github.ref }}
 jobs:
   check_secrets:
-    name: Check if required secrets are available
-    runs-on: ubuntu-latest
     env:
       S3_BUILD_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_BUILD_CACHE_ACCESS_KEY_ID }}
       S3_BUILD_CACHE_SECRET_KEY: ${{ secrets.S3_BUILD_CACHE_SECRET_KEY }}
+    name: Check if required secrets are available
     outputs:
       secrets_available: ${{ steps.set-matrix.outputs.secrets_available }}
+    runs-on: self-hosted
     steps:
-      - id: set-matrix
-        run: |
-          if [[ -n "${S3_BUILD_CACHE_ACCESS_KEY_ID:-}" ]] && [[ -n "${S3_BUILD_CACHE_SECRET_KEY:-}" ]]; then
-            echo "secrets_available=true" >> $GITHUB_OUTPUT
-          else
-            echo "secrets_available=false" >> $GITHUB_OUTPUT
-          fi
-
+    - continue-on-error: true
+      id: set-matrix
+      run: "if [[ -n \"${S3_BUILD_CACHE_ACCESS_KEY_ID:-}\" ]] && [[ -n \"${S3_BUILD_CACHE_SECRET_KEY:-}\"\
+        \ ]]; then\n  echo \"secrets_available=true\" >> $GITHUB_OUTPUT\nelse\n  echo\
+        \ \"secrets_available=false\" >> $GITHUB_OUTPUT\nfi\n"
   seed-build-cache:
-    needs: check_secrets
     if: ${{ needs.check_secrets.outputs.secrets_available == 'true' }}
+    name: ${{ matrix.os }}, ${{ matrix.jdk }} seed build cache
+    needs: check_secrets
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 50
+    - continue-on-error: true
+      name: Set up JDK ${{ matrix.jdk }}
+      uses: actions/setup-java@v3
+      with:
+        distribution: liberica
+        java-version: ${{ matrix.jdk }}
+    - continue-on-error: true
+      env:
+        S3_BUILD_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_BUILD_CACHE_ACCESS_KEY_ID }}
+        S3_BUILD_CACHE_SECRET_KEY: ${{ secrets.S3_BUILD_CACHE_SECRET_KEY }}
+      name: Build pgjdbc
+      uses: burrunan/gradle-cache-action@v1
+      with:
+        arguments: build -x test --scan -i
+        job-id: jdk${{ matrix.jdk }}
     strategy:
       matrix:
-        os: [ubuntu, macos, windows]
-        jdk: [17]
-
-    name: '${{ matrix.os }}, ${{ matrix.jdk }} seed build cache'
-    runs-on: ${{ matrix.os }}-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 50
-      - name: 'Set up JDK ${{ matrix.jdk }}'
-        uses: actions/setup-java@v3
-        with:
-          java-version: ${{ matrix.jdk }}
-          distribution: liberica
-      - uses: burrunan/gradle-cache-action@v1
-        name: Build pgjdbc
-        env:
-          S3_BUILD_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_BUILD_CACHE_ACCESS_KEY_ID }}
-          S3_BUILD_CACHE_SECRET_KEY: ${{ secrets.S3_BUILD_CACHE_SECRET_KEY }}
-        with:
-          job-id: jdk${{ matrix.jdk }}
-          arguments: build -x test --scan -i
+        jdk:
+        - 17
+        os:
+        - ubuntu
+        - macos
+        - windows
+name: Seed build cache
+on:
+  repository_dispatch:
+    types: trigger-ga___buildcache.yml
+permissions:
+  contents: read
